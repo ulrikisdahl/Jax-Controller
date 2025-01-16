@@ -1,0 +1,16 @@
+pivitol_parameters:
+  seed: 10
+  epochs: 10
+  num_timesteps: 100
+  noise_range_low: -0.01
+  noise_range_high: 0.01 
+  
+  plant:
+    class: "BathtubPlant"
+    cross_sec_A: 3.0
+    cross_sec_C: 1.0
+    initial_level: 10.0
+    
+  controller:
+    class: "PIDController"
+    learning_rate: 0.001
