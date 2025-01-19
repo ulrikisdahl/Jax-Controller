@@ -5,59 +5,6 @@ from tqdm import tqdm
 from src.Plant import BasePlant
 from src.Controller import BaseController
 
-    
-def step_fn(
-    control_signal: float,
-    plant: BasePlant,
-    plant_state: dict,
-    disturbance: float
-):
-    """
-    Outputs error and is used to compute derivative w.r.t. controller output
-    """
-    new_level, target_level = plant.evaluate(disturbance, control_signal, plant_state)
-    error = target_level - new_level
-    return (error, new_level)  #NOTE: error[0]
-
-#@jax.jit
-def epoch_fn(
-    key: jax.random.PRNGKey,
-    epoch_nr: int,
-    noise_range: tuple[float, float], 
-    num_steps: int,
-    parameters: jax.Array,  
-    plant: BasePlant,
-    controller: BaseController
-):
-    """
-    Function that outputs MSE and we compute derivative w.r.t. controller parameters
-    """
-    plant.reset() #NOTE: How did this work??????
-    error = 0.0
-    d_error = 0.0
-    error_history = 0.0 #TODO: Move to inside controller
-    squared_error_history = 0.0
-    disturbances = jax.random.uniform(
-        key + epoch_nr, shape=(num_steps),
-        minval=noise_range[0], maxval=noise_range[1]
-    )
-
-    error_grad_fn = jax.value_and_grad(step_fn, argnums=0, has_aux=True) #derivative of error w.r.t. control_signal 
-    for step in range(num_steps):
-        #forward 
-        # print(f"STEP: {step}")
-        plant_state = plant.get_state() 
-        control_signal = controller(parameters, error, d_error, error_history)
-        (error, new_level), d_error = error_grad_fn(control_signal[0], plant, plant_state, disturbances[step])
-        
-        #update stuff
-        error_history += error
-        squared_error_history += jnp.pow(error, 2)
-        plant.update(new_level)
-        #TODO: controller.update(error)
-        
-    mse = squared_error_history / num_steps
-    return mse
 
 
 class Consys:
@@ -79,12 +26,10 @@ class Consys:
         """
         """
         mse_log = []
-        grad_fn = jax.value_and_grad(epoch_fn, argnums=4) #derivative w.r.t. controller_params
+        grad_fn = jax.value_and_grad(self.epoch_fn, argnums=0) #derivative w.r.t. controller_params
         for epoch in tqdm(range(self.epochs)):
             controller_parameters = self.controller.get_params()
-            value, mse_grad = grad_fn(
-                self.key, epoch, (self.noise_range_low, self.noise_range_high), self.num_timesteps, controller_parameters, self.plant, self.controller
-            )
+            value, mse_grad = grad_fn(controller_parameters, self.key, epoch)
             self.controller.update_params(controller_parameters, mse_grad)
             print(f"Epoch {epoch}: {value}")
             mse_log.append(value)
@@ -93,10 +38,55 @@ class Consys:
         plot_mse_per_epoch(mse_log)    
         print("DONE")
 
+    
+    #@jax.jit
+    def epoch_fn(
+        self,
+        parameters: jax.Array, #should be the only parameter, since in this function we only want to trace the parameters (to compute d_mse/d_params)  
+        epoch_nr: int,
+        key: jax.random.PRNGKey
+    ):
+        """
+        Function that outputs MSE and we compute derivative w.r.t. controller parameters
+        """
+        self.plant.reset() #NOTE: How did this work??????
+        error = 0.0
+        d_error = 0.0
+        error_history = 0.0 #TODO: Move to inside controller
+        squared_error_history = 0.0
+
+        noise_key = jax.lax.stop_gradient(key + epoch_nr) #NOTE 
+        disturbances = jax.random.uniform(
+            noise_key, shape=(self.num_timesteps),
+            minval=self.noise_range_low, maxval=self.noise_range_high
+        )
+
+        error_grad_fn = jax.value_and_grad(self.step_fn, argnums=0, has_aux=True) #derivative of error w.r.t. control_signal 
+        for step in range(self.num_timesteps):
+            #forward 
+            control_signal = self.controller(parameters, error, d_error, error_history)
+            (error, output), d_error = error_grad_fn(control_signal[0], disturbances[step])
             
-
-
-
+            #update stuff
+            error_history += error
+            squared_error_history += jnp.pow(error, 2)
+            self.plant.update(output) 
+            #TODO: controller.update(error)
+            
+        mse = squared_error_history / self.num_timesteps
+        return mse
+            
+    def step_fn(
+        self, 
+        control_signal: float,
+        disturbance: float
+    ):
+        """
+        Outputs error and is used to compute derivative w.r.t. controller output
+        """
+        output, target = self.plant.evaluate(disturbance, control_signal)
+        error = target - output
+        return (error, output)
 
 
 

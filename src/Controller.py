@@ -64,26 +64,26 @@ class NeuralNetworkController(BaseController):
         self.weight_min = cfg["weight_range_low"]
         self.weight_max = cfg["weight_range_high"] 
         self.weights = None
-        self._init_weights()
+        self._init_params()
 
 
-    def __call__(self, params: jax.Array, error: float, d_error: float, error_history: float):
+    def __call__(self, params: jax.Array, error: float, d_error: float, error_history: float) -> float:
         """
         x*W + b
         """
-        # num_layers = params["num_layers"] #TODO: use object state variables instead
-        # weights = params["weights"]
         weights = params
         activation = jnp.array([error, d_error, error_history, 1.0]) #TODO: terrible naming
         for layer in range(self.num_layers + 1): 
-            layer_output = jnp.matmul(activation, weights[layer])
+            layer_output = jnp.matmul(activation, weights[layer]) 
             if layer < self.num_layers:
-                layer_output = jnp.append(layer_output, 1.0) #bias trick            
                 activation = jnp.maximum(layer_output, 0) #TODO: Generalize 
-        
+                activation = jnp.append(activation, 1.0)
+
         return layer_output #TODO: Add output function (then you wont need to clamp current_level)
     
-    def _init_weights(self):
+    def _init_params(self):
+        """
+        """
         weights = []
         in_dims = [self.input_dim] + [self.num_neurons for _ in range(self.num_layers)] 
         out_dims = [self.num_neurons for _ in range(self.num_layers)] + [self.output_dim] 
