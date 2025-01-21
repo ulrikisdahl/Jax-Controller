@@ -82,6 +82,28 @@ class NeuralNetworkController(BaseController):
         self.weights = None
         self._init_params()
 
+    def _init_params(self):
+        """
+        """
+        dims = [self.input_dim] + [self.num_neurons for _ in range(self.num_layers - 1)] + [self.output_dim]
+        
+        params = []
+        init_key = self.key
+        
+        for i in range(len(dims) - 1):
+            w_key, b_key, init_key = jax.random.split(init_key, 3)
+            
+            weight = jax.random.uniform(w_key, shape=(dims[i], dims[i+1]),
+                                   minval=self.weight_min,
+                                   maxval=self.weight_max)
+            bias = jax.random.uniform(b_key, shape=(dims[i+1],),
+                                   minval=self.weight_min,
+                                   maxval=self.weight_max)
+            
+            params.append((weight, bias)) 
+
+        self.weights = params
+
     def __call__(self, params: list, error: float, d_error: float, error_history: float) -> jnp.ndarray:
         """
         """
@@ -97,33 +119,6 @@ class NeuralNetworkController(BaseController):
         weight_out, bias_out = params[-1]
         logits = jnp.matmul(activation, weight_out) + bias_out
         return logits 
-
-
-    def _init_params(self):
-        """
-        """
-        dims = [self.input_dim] + [self.num_neurons for _ in range(self.num_layers)] + [self.output_dim] #possibly self.num_layers - 1
-
-        weights = []
-        for i in range(len(dims) - 1):
-            weight_key, bias_key, init_key = jax.random.split(self.key, 3)
-
-            layer_weights = jax.random.uniform(
-                weight_key,
-                shape=(dims[i], dims[i+1]),
-                minval=self.weight_min,
-                maxval=self.weight_max
-            )
-            bias = jax.random.uniform(
-                bias_key,
-                shape=(self.output_dim,),
-                minval=self.weight_min,
-                maxval=self.weight_max
-            )
-
-            weights.append((layer_weights, bias))
-        
-        self.weights = weights
 
     def get_params(self):
         """
