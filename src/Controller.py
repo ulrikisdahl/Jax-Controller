@@ -52,49 +52,92 @@ class PIDController(BaseController):
         self.error_history = 0.0
 
 
+
 class NeuralNetworkController(BaseController):
     def __init__(self, cfg: dict, key: jax.random.PRNGKey):
+        """
+        A simple feedforward MLP controller:
+          - input_dim=3 (error, d_error, error_history)
+          - output_dim=1 (control signal)
+          - hidden layers determined by num_layers and num_neurons
+        """
         self.input_dim = 3
-        self.output_dim = 1 
+        self.output_dim = 1
         self.key = key
         self.learning_rate = cfg["learning_rate"]
-        self.num_layers = cfg["num_layers"]
+        self.num_layers = cfg["num_layers"]  
         self.num_neurons = cfg["num_neurons"]
-        self.activation_fn = cfg["activation_fn"]
+        self.activation_fn_name = cfg["activation_fn"]
         self.weight_min = cfg["weight_range_low"]
-        self.weight_max = cfg["weight_range_high"] 
+        self.weight_max = cfg["weight_range_high"]
+        
+        self._activation_map = {
+            "relu": jax.nn.relu,
+            "tanh": jnp.tanh,
+            "sigmoid": jax.nn.sigmoid,
+        }
+        self.activation_fn = self._activation_map.get(self.activation_fn_name, lambda x: x)
+        
+        #init params
         self.weights = None
         self._init_params()
 
-
-    def __call__(self, params: jax.Array, error: float, d_error: float, error_history: float) -> float:
+    def __call__(self, params: list, error: float, d_error: float, error_history: float) -> jnp.ndarray:
         """
-        x*W + b
         """
-        weights = params
-        activation = jnp.array([error, d_error, error_history, 1.0]) #TODO: terrible naming
-        for layer in range(self.num_layers + 1): 
-            layer_output = jnp.matmul(activation, weights[layer]) 
-            if layer < self.num_layers:
-                activation = jnp.maximum(layer_output, 0) #TODO: Generalize 
-                activation = jnp.append(activation, 1.0)
+        #combine inputs into a input vector
+        activation = jnp.array([error, d_error, error_history], dtype=jnp.float32)
 
-        return layer_output #TODO: Add output function (then you wont need to clamp current_level)
-    
+        #forward pass through all layers
+        for (weight, bias) in params[:-1]:
+            layer_output = jnp.matmul(activation, weight) + bias
+            activation = self.activation_fn(layer_output)
+
+        #final output layer
+        weight_out, bias_out = params[-1]
+        logits = jnp.matmul(activation, weight_out) + bias_out
+        return logits 
+
+
     def _init_params(self):
         """
         """
+        dims = [self.input_dim] + [self.num_neurons for _ in range(self.num_layers)] + [self.output_dim] #possibly self.num_layers - 1
+
         weights = []
-        in_dims = [self.input_dim] + [self.num_neurons for _ in range(self.num_layers)] 
-        out_dims = [self.num_neurons for _ in range(self.num_layers)] + [self.output_dim] 
-        for layer in range(self.num_layers + 1):
-            weight_param = jax.random.uniform(self.key, shape=(in_dims[layer] + 1, out_dims[layer]), minval=self.weight_min, maxval=self.weight_max) # +1 for bias trick
-            weights.append(weight_param)
+        for i in range(len(dims) - 1):
+            weight_key, bias_key, init_key = jax.random.split(self.key, 3)
+
+            layer_weights = jax.random.uniform(
+                weight_key,
+                shape=(dims[i], dims[i+1]),
+                minval=self.weight_min,
+                maxval=self.weight_max
+            )
+            bias = jax.random.uniform(
+                bias_key,
+                shape=(self.output_dim,),
+                minval=self.weight_min,
+                maxval=self.weight_max
+            )
+
+            weights.append((layer_weights, bias))
+        
         self.weights = weights
 
     def get_params(self):
+        """
+        Return the networks parameters (list of (weight, bias) pairs).
+        """
         return self.weights
 
-    def update_params(self, params: jax.Array, gradients: jax.Array):
-        for layer in range(self.num_layers + 1):        
-            self.weights[layer] = params[layer] - self.learning_rate * gradients[layer]
+    def update_params(self, old_params: list, grads: list):
+        """
+        """
+        new_params = []
+        for (weight, bias), (d_W, d_b) in zip(old_params, grads):
+            weight_new = weight - self.learning_rate * d_W
+            bias_new = bias - self.learning_rate * d_b
+            new_params.append((weight_new, bias_new))
+        self.weights = new_params
+
