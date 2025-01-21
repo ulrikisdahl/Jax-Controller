@@ -7,7 +7,7 @@ class BasePlant:
 
 class BathtubPlant(BasePlant):
     def __init__(self, cfg: dict):
-        super(BathtubPlant).__init__()
+        super(BathtubPlant).__init__() #TODO: Add self?
         self.target_level = cfg["initial_level"] #starting level of bathtub
         self.current_level = 0.0 #current level which we aim to keep close to initial_level
         self.timestep_length = 1 #sec 
@@ -31,20 +31,24 @@ class BathtubPlant(BasePlant):
         delta_height = jnp.divide(volume_change, self.cross_sec_A) #the change in water height
 
         new_level = self.current_level + delta_height
-        return (new_level, self.target_level)
-        
-
-    def update(self, new_level: float):
-        self.current_level = new_level #self.plant is never traced in the System, so we can mutate its state variables all we want!
-
-    def get_state(self) -> tuple:
+        # return (new_level, self.target_level)
         return {
-            "current_level": self.current_level,
-            "target_level": self.target_level, 
-            "cross_sec_A": self.cross_sec_A, 
-            "cross_sec_C": self.cross_sec_C
-        }
-    
+            "output": new_level,
+            "target": self.target_level
+        }        
+
+    # def update(self, new_level: float):
+    def update(self, new_state: dict):
+        self.current_level = new_state["output"] #self.plant is never traced in the System, so we can mutate its state variables all we want!
+
+    # def get_state(self) -> tuple:
+    #     return {
+    #         "current_level": self.current_level,
+    #         "target_level": self.target_level, 
+    #         "cross_sec_A": self.cross_sec_A, 
+    #         "cross_sec_C": self.cross_sec_C
+    #     }
+
     def reset(self):
         self.current_level = self.target_level
 
@@ -52,39 +56,131 @@ class BathtubPlant(BasePlant):
 class CournotPlant(BasePlant):
     def __init__(self, cfg: dict):
         super(CournotPlant).__init__()
-        self.amount_q1 = 0.0
-        self.amount_q2 = 0.0
+        self.amount_q1 = 0.5
+        self.amount_q2 = 0.5
         self.p_max = cfg["p_max"]
         self.marginal_cost = cfg["marginal_cost"] #c_m
         self.profit_goal = cfg["profit_goal"] #T
 
-    def evaluate(self, disturbances: float, control_signal: float):
+    def evaluate(self, disturbances: float, control_signal: float) -> dict:
         """
         """
         #q(t+1) = U + q(t)
-        amount_q1 = control_signal + self.amount_q
-        
+        amount_q1 = control_signal + self.amount_q1
+        amount_q1 = jnp.clip(amount_q1, min=0.0, max=1.0)
+        # amount_q1 = control_signal + jnp.clip(self.amount_q1, min=0.0, max=1.0)
+
         #q(t+1) = D + q(t)
         amount_q2 = disturbances + self.amount_q2
+        amount_q2 = jnp.clip(amount_q2, min=0.0, max=1.0)
+        # amount_q2 = control_signal + jnp.clip(self.amount_q2, min=0.0, max=1.0)
 
         #q = q1 + q1
         total_amount = amount_q1 + amount_q2
 
         #p(q) = p_max - q
-        price = self.p_max - total_amount
+        price = jnp.maximum(self.p_max - total_amount, 0.0)
 
         #P1 = q * (p(q) - c_m)
         profit = amount_q1 * (price - self.marginal_cost)
 
-        return profit, self.profit_goal #E = T - P1
+        # return profit, self.profit_goal #E = T - P1
+        return {
+            "output": profit,
+            "target": self.profit_goal,
+            "amount_q1": amount_q1,  
+            "amount_q2": amount_q2
+        } 
     
 
-    def update(self):
-        self.amount_q2
+    def update(self, new_state: dict):
+        self.amount_q1 = new_state["amount_q1"]
+        self.amount_q2 = new_state["amount_q2"]
 
     def reset(self):
-        self.amount_q1 = 0.0
-        self.amount_q2 = 0.0
+        self.amount_q1 = 0.5
+        self.amount_q2 = 0.5
+
+
+class CarVelocityPlant(BasePlant): #cruise control
+    def __init__(self, cfg: dict):
+        super(CarVelocityPlant).__init__()
+        self.drag = cfg["drag"]
+        self.friction = cfg["friction"]
+        self.target = cfg["target_velocity"]
+        self.initial_velocity = cfg["initial_velocity"]
+        self.velocity = self.initial_velocity
+        self.dt = 1.0
+
+    def evaluate(self, disturbances: float, control_signal: float):
+        """
+        """
+        engine_force = control_signal
+        
+        drag_force = self.drag * (self.velocity**2)
+
+        net_force = engine_force - drag_force - self.friction + disturbances
+
+        new_velocity = self.velocity + self.dt * net_force
+        new_velocity = jnp.maximum(new_velocity, 0.0)
+
+        return {
+            "output": new_velocity,
+            "target": self.target
+        }
+    
+    def update(self, new_state: dict):
+        self.velocity = new_state["output"]
+
+    def reset(self):
+        self.velocity = self.initial_velocity
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class ProductionPlant(BasePlant): #resource allocation
+    def __init__(self, cfg: dict):
+        super(ProductionPlant).__init__()
+        self.target = cfg["target_volume"]
+        self.Q = 0.5 #initial production
+        self.k = cfg["production_efficiency"]
+        self.c = cfg["decay_rate"]
+
+
+    def evaluate(self, disturbances: float, control_signal: float):
+        """
+        dQ/dt = kR - cQ
+        
+        Q: Production output
+        R: Resources allocated (control_signal)
+        k: Production efficiency
+        c: Decay rate (machinery wear)
+        """
+        dQ_dt = self.k * control_signal - self.c * self.Q
+        Q_new = self.Q + dQ_dt + disturbances
+        return {
+            "output": Q_new,
+            "target": self.target
+        }
+    
+    def update(self, new_state: dict):
+        self.Q = new_state["output"]
+
+    def reset(self):
+        self.Q = 0.5
+
+
 
 if __name__ == "__main__":          
     obj = BathtubPlant()

@@ -42,7 +42,7 @@ class Consys:
     #@jax.jit
     def epoch_fn(
         self,
-        parameters: jax.Array, #should be the only parameter, since in this function we only want to trace the parameters (to compute d_mse/d_params)  
+        parameters: jax.Array, #should be the only parameter, since in this function we only want to trace the parameters (to compute d_mse/d_params)
         epoch_nr: int,
         key: jax.random.PRNGKey
     ):
@@ -55,38 +55,37 @@ class Consys:
         error_history = 0.0 #TODO: Move to inside controller
         squared_error_history = 0.0
 
-        noise_key = jax.lax.stop_gradient(key + epoch_nr) #NOTE 
+        noise_key = jax.lax.stop_gradient(key + epoch_nr) #NOTE
         disturbances = jax.random.uniform(
             noise_key, shape=(self.num_timesteps),
             minval=self.noise_range_low, maxval=self.noise_range_high
         )
 
-        error_grad_fn = jax.value_and_grad(self.step_fn, argnums=0, has_aux=True) #derivative of error w.r.t. control_signal 
+        # error_grad_fn = jax.value_and_grad(self.step_fn, argnums=0, has_aux=True) #derivative of error w.r.t. control_signal 
         for step in range(self.num_timesteps):
             #forward 
             control_signal = self.controller(parameters, error, d_error, error_history)
-            (error, output), d_error = error_grad_fn(control_signal[0], disturbances[step])
-            
+            new_error, new_state = self.step_fn(control_signal[0], disturbances[step])
+            d_error = new_error - error
+            error = new_error
+
             #update stuff
             error_history += error
             squared_error_history += jnp.pow(error, 2)
-            self.plant.update(output) 
+            self.plant.update(new_state) 
             #TODO: controller.update(error)
             
         mse = squared_error_history / self.num_timesteps
         return mse
             
-    def step_fn(
-        self, 
-        control_signal: float,
-        disturbance: float
-    ):
+    def step_fn(self, control_signal: float, disturbance: float) -> tuple[float, dict]: 
         """
         Outputs error and is used to compute derivative w.r.t. controller output
         """
-        output, target = self.plant.evaluate(disturbance, control_signal)
-        error = target - output
-        return (error, output)
+        # output, target = self.plant.evaluate(disturbance, control_signal)
+        new_state = self.plant.evaluate(disturbance, control_signal)
+        error = new_state["target"] - new_state["output"]
+        return error, new_state
 
 
 
