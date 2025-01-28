@@ -1,12 +1,12 @@
 pivitol_parameters:
-  seed: 10 #2 or 10 (10 is best), 1 does not work
+  seed: 2 #2
   epochs: 100
   num_timesteps: 10
   noise_range_low: -0.01
   noise_range_high: 0.01
   
   plant:
-    class: "CournotPlant"
+    class: "BathtubPlant" 
     
     #BathtubPlant
     cross_sec_A: 25 #25
@@ -14,7 +14,7 @@ pivitol_parameters:
     initial_level: 10.0 #15
     
     #CournotPlant
-    p_max: 2.2
+    p_max: 2.1
     marginal_cost: 0.1
     profit_goal: 0.3
 
@@ -23,22 +23,19 @@ pivitol_parameters:
     friction: 0.01
     target_velocity: 10.0
     initial_velocity: 0.0
-    
+
+    target_volume: 2.0
+    production_efficiency: 0.9
+    decay_rate: 0.01  
+  
+
   controller:
-    class: "NeuralNetworkController"
+    class: "PIDController"
     learning_rate: 0.01
-    num_layers: 2
+    num_layers: 1
     num_neurons: 32
     activation_fn: "relu"
     weight_range_low: -0.1 #(0.1 works best with seed=2, 0.01 works best with seed=10)
     weight_range_high: 0.1
 
 
-# BathtubPlant the NN needs weights in [-0.1, 0.1]
-# CounrnotPlant needs num_layers=0
-# CarVelocityPlant has to have weight range in [-0.1, 0.1], [-0.01, 0.01] does not work
-
-#Good examples
-# - BathtubPlant: num_layers=2, num_neurons=32, weights[-0.01, 0.01], seed=2
-# - CournotPlant: num_layers=1, num_neurons=32, weights[-0.01, 0.01], seed=10 - weights[-0.1, 0.1] might be better
-#   - Does not work when seed=2

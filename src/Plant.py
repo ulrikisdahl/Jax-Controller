@@ -136,10 +136,34 @@ class CarVelocityPlant(BasePlant): #cruise control
         self.velocity = self.initial_velocity
 
 
+class GreenhousePlant(BasePlant):
+    def __init__(self, cfg: dict):
+        super().__init__()
+        self.target_humidity = cfg["target_humidity"]
+        self.current_humidity = cfg["initial_humidity"]
+        self.humidity_gain = cfg["humidity_gain"]
+        self.humidity_loss = cfg["humidity_loss"]
 
+    def evaluate(self, disturbances: float, control_signal: float):
+        """
+        Simulates humidity changes in the greenhouse.
+        control_signal: Humidifier input (units per timestep).
+        """
+        humidity_increase = control_signal * self.humidity_gain
+        new_humidity = (
+            self.current_humidity + humidity_increase - self.humidity_loss + disturbances
+        )
+        new_humidity = jnp.clip(new_humidity, 0.0, 100.0)  # Humidity is in percentage
+        return {
+            "output": new_humidity,
+            "target": self.target_humidity
+        }
 
+    def update(self, new_state: dict):
+        self.current_humidity = new_state["output"]
 
-
+    def reset(self):
+        self.current_humidity = self.target_humidity / 2
 
 
 
