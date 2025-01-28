@@ -73,7 +73,7 @@ class Consys:
         for step in range(self.num_timesteps):
             #forward 
             control_signal = self.controller(parameters)
-            error, new_state = self.step_fn(control_signal[0], disturbances[step])
+            error, new_state = self.step_fn(control_signal, disturbances[step])
 
             #update stuff
             squared_error_history += jnp.pow(error, 2)

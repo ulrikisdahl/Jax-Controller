@@ -24,13 +24,12 @@ class BaseController:
     
 class PIDController(BaseController):
     def __init__(self, cfg: dict, key: jax.random.PRNGKey):
+        super().__init__()
         self.learning_rate = cfg["learning_rate"]
-        self.k_p = jax.random.uniform(key, shape=(1))
-        self.k_i = jax.random.uniform(key, shape=(1))
-        self.k_d = jax.random.uniform(key, shape=(1))
-        self.error = 0.0
-        self.d_error = 0.0
-        self.error_history = 0.0
+        
+        self.k_p = 0.01
+        self.k_d = -0.01
+        self.k_i = 0.0
 
     def __call__(self, params: jax.Array):
         """
@@ -70,6 +69,7 @@ class NeuralNetworkController(BaseController):
           - output_dim=1 (control signal)
           - hidden layers determined by num_layers and num_neurons
         """
+        super().__init__()
         self.input_dim = 3
         self.output_dim = 1
         self.key = key
@@ -120,7 +120,7 @@ class NeuralNetworkController(BaseController):
         """
         """
         #combine inputs into a input vector
-        activation = jnp.array([self.error, self.d_error, self.error_history], dtype=jnp.float32)
+        activation = jnp.array([self.error, self.d_error, self.error_history], dtype=jnp.float32).T
 
         #forward pass through all layers
         for (weight, bias) in params[:-1]:
@@ -130,7 +130,7 @@ class NeuralNetworkController(BaseController):
         #final output layer
         weight_out, bias_out = params[-1]
         logits = jnp.matmul(activation, weight_out) + bias_out
-        return logits 
+        return logits[0]
 
     def get_params(self):
         """

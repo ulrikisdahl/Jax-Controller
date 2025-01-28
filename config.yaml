@@ -1,12 +1,12 @@
 pivitol_parameters:
-  seed: 2 #2
-  epochs: 20
-  num_timesteps: 100
+  seed: 10 #2 or 10 (10 is best), 1 does not work
+  epochs: 100
+  num_timesteps: 10
   noise_range_low: -0.01
   noise_range_high: 0.01
   
   plant:
-    class: "CournotPlant" 
+    class: "CournotPlant"
     
     #BathtubPlant
     cross_sec_A: 25 #25
@@ -14,7 +14,7 @@ pivitol_parameters:
     initial_level: 10.0 #15
     
     #CournotPlant
-    p_max: 2.1
+    p_max: 2.2
     marginal_cost: 0.1
     profit_goal: 0.3
 
@@ -25,9 +25,9 @@ pivitol_parameters:
     initial_velocity: 0.0
     
   controller:
-    class: "NeuralNetworkController"
+    class: "PIDController"
     learning_rate: 0.01
-    num_layers: 1
+    num_layers: 2
     num_neurons: 32
     activation_fn: "relu"
     weight_range_low: -0.1 #(0.1 works best with seed=2, 0.01 works best with seed=10)
