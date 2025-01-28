@@ -25,7 +25,7 @@ pivitol_parameters:
     initial_velocity: 0.0
     
   controller:
-    class: "PIDController"
+    class: "NeuralNetworkController"
     learning_rate: 0.01
     num_layers: 2
     num_neurons: 32
