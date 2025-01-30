@@ -2,6 +2,9 @@ import jax.numpy as jnp
 import jax
 
 class BaseController:
+    """
+    Base class for all controllers
+    """
     def __init__(self):
         self.error = 0.0
         self.d_error = 0.0
@@ -9,6 +12,7 @@ class BaseController:
 
     def update(self, new_error):
         """
+        Updates the error and d_error
         """
         old_error = self.error
         self.d_error = old_error - new_error
@@ -16,6 +20,9 @@ class BaseController:
         self.error_history += new_error
     
     def reset(self):
+        """
+        Resets the controller state
+        """
         self.error = 0.0
         self.d_error = 0.0
         self.error_history = 0.0
@@ -34,10 +41,16 @@ class PIDController(BaseController):
     def __call__(self, params: jax.Array):
         """
         Computes the control signal based on the error
-        Args:
-            error: Error from previous timestep
-            d_error: Error from previous timestep with respect to the control output
-            error_history: error integral over time 
+        
+        Parameters
+        ----------
+        error: Error from previous timestep
+        d_error: Error from previous timestep with respect to the control output
+        error_history: error integral over time 
+        
+        Returns
+        -------
+        control_signal: The control signal to be applied to the plant
         """
         control_signal = params[0] * self.error + params[1] * self.d_error + params[2] * self.error_history
         return control_signal
@@ -51,9 +64,15 @@ class PIDController(BaseController):
         self.k_d = params[2] - self.learning_rate * gradients[2]
 
     def get_params(self):
+        """
+        Returns the controller parameters
+        """
         return jnp.array([self.k_p, self.k_i, self.k_d])
     
     def get_state(self):
+        """
+        Returns the state of the controller
+        """
         return {
             "error_history": self.error_history,
             "learning_rate": self.learning_rate
@@ -65,13 +84,10 @@ class NeuralNetworkController(BaseController):
     def __init__(self, cfg: dict, key: jax.random.PRNGKey):
         """
         A simple feedforward MLP controller:
-          - input_dim=3 (error, d_error, error_history)
-          - output_dim=1 (control signal)
-          - hidden layers determined by num_layers and num_neurons
         """
         super().__init__()
-        self.input_dim = 3
-        self.output_dim = 1
+        self.input_dim = 3 #(error, d_error, error_history)
+        self.output_dim = 1 #(control signal)
         self.key = key
         self.learning_rate = cfg["learning_rate"]
         self.num_layers = cfg["num_layers"]  
@@ -94,8 +110,9 @@ class NeuralNetworkController(BaseController):
         self.weights = None
         self._init_params()
 
-    def _init_params(self):
+    def _init_params(self) -> None:
         """
+        Initialize the weights and biases of the network
         """
         dims = [self.input_dim] + [self.num_neurons for _ in range(self.num_layers - 1)] + [self.output_dim]
         
@@ -118,6 +135,15 @@ class NeuralNetworkController(BaseController):
 
     def __call__(self, params: list) -> jnp.ndarray:
         """
+        Forward pass through the network
+
+        Parameters
+        ----------
+        params: list of (weight, bias) pairs
+
+        Returns
+        -------
+        logits: the output of the network
         """
         #combine inputs into a input vector
         activation = jnp.array([self.error, self.d_error, self.error_history], dtype=jnp.float32).T
@@ -140,6 +166,7 @@ class NeuralNetworkController(BaseController):
 
     def update_params(self, old_params: list, grads: list):
         """
+        Update the network parameters based on the gradients
         """
         new_params = []
         for (weight, bias), (d_W, d_b) in zip(old_params, grads):

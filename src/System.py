@@ -2,12 +2,14 @@ from utils import get_class, plot_mse_per_epoch, plot_pid_parameter_history
 import jax.numpy as jnp
 import jax
 from tqdm import tqdm
-from src.Plant import BasePlant
-from src.Controller import BaseController, PIDController
-
+from src.Controller import PIDController
+import numpy as np
 
 
 class Consys:
+    """
+    Main class for the control system
+    """
     def __init__(self, cfg: dict):
         #load config
         self.seed = cfg["seed"]
@@ -29,6 +31,7 @@ class Consys:
 
     def run(self):
         """
+        Main training loop
         """
         mse_log = []
         grad_fn = jax.value_and_grad(self.epoch_fn, argnums=0) #derivative w.r.t. controller_params
@@ -52,23 +55,37 @@ class Consys:
         plot_pid_parameter_history(self.k_p_history, self.k_i_history, self.k_d_history)
 
     
-    #@jax.jit
     def epoch_fn(
         self,
-        parameters: jax.Array, #should be the only parameter, since in this function we only want to trace the parameters (to compute d_mse/d_params)
+        parameters: jax.Array,
         epoch_nr: int,
         key: jax.random.PRNGKey
     ):
         """
         Function that outputs MSE and we compute derivative w.r.t. controller parameters
+
+        Parameters
+        ----------
+        parameters: the controller parameters of shape
+        epoch_nr: the current epoch number
+        key: the random key for generating disturbances
+
+        Returns
+        -------
+        mse: the mean squared error
         """
         squared_error_history = 0.0
 
-        noise_key = jax.lax.stop_gradient(key + epoch_nr) #NOTE
+        noise_key = jax.lax.stop_gradient(key + epoch_nr)
         disturbances = jax.random.uniform(
             noise_key, shape=(self.num_timesteps),
             minval=self.noise_range_low, maxval=self.noise_range_high
         )
+        # disturbances = np.random.uniform(
+        #     low=self.noise_range_low, 
+        #     high=self.noise_range_high, 
+        #     size=(self.num_timesteps,)
+        # ).astype(np.float32)
 
         for step in range(self.num_timesteps):
             #forward 
@@ -78,7 +95,7 @@ class Consys:
             #update stuff
             squared_error_history += jnp.pow(error, 2)
             self.plant.update(new_state)
-            self.controller.update(error) #TODO <--- 
+            self.controller.update(error) 
 
         mse = squared_error_history / self.num_timesteps
         return mse
@@ -86,8 +103,17 @@ class Consys:
     def step_fn(self, control_signal: float, disturbance: float) -> tuple[float, dict]: 
         """
         Outputs error and is used to compute derivative w.r.t. controller output
+
+        Parameters
+        ----------
+        control_signal: the control signal
+        disturbance: the disturbance signal
+
+        Returns
+        -------
+        error: the error
+        new_state: the new state of the plant after the timestep
         """
-        # output, target = self.plant.evaluate(disturbance, control_signal)
         new_state = self.plant.evaluate(disturbance, control_signal)
         error = new_state["target"] - new_state["output"]
         return error, new_state
@@ -99,5 +125,10 @@ if __name__ == "__main__":
     pass
 
 
-#TODO: controller state mutations
-#TODO: why k_i parameter (PID) is always zero
+
+
+# disturbances = np.random.uniform(
+#             low=self.noise_range_low, 
+#             high=self.noise_range_high, 
+#             size=(self.num_timesteps,)
+#         ).astype(np.float32)

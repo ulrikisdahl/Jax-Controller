@@ -7,7 +7,7 @@ class BasePlant:
 
 class BathtubPlant(BasePlant):
     def __init__(self, cfg: dict):
-        super(BathtubPlant).__init__() #TODO: Add self?
+        super(BathtubPlant).__init__()
         self.target_level = cfg["initial_level"] #starting level of bathtub
         self.current_level = 0.0 #current level which we aim to keep close to initial_level
         self.timestep_length = 1 #sec 
@@ -18,9 +18,16 @@ class BathtubPlant(BasePlant):
     def evaluate(self, disturbances: float, control_signal: float):
         """
         Computes the new water level in the bathtub given the disturbances and control signal
-        Returns:
-            self.current_level: the new water level in the bathtub after the timestep
-            self.initial_level: the initial water level in the bathtub
+        
+        Parameters
+        ----------
+        disturbances: the disturbances in the system
+        control_signal: the control signal from current timestep
+
+        Returns
+        -------
+        self.current_level: the new water level in the bathtub after the timestep
+        self.initial_level: the initial water level in the bathtub
         """
         self.current_level = jnp.maximum(self.current_level, 1e-6)
 
@@ -31,23 +38,13 @@ class BathtubPlant(BasePlant):
         delta_height = jnp.divide(volume_change, self.cross_sec_A) #the change in water height
 
         new_level = self.current_level + delta_height
-        # return (new_level, self.target_level)
         return {
             "output": new_level,
             "target": self.target_level
         }        
 
-    # def update(self, new_level: float):
     def update(self, new_state: dict):
-        self.current_level = new_state["output"] #self.plant is never traced in the System, so we can mutate its state variables all we want!
-
-    # def get_state(self) -> tuple:
-    #     return {
-    #         "current_level": self.current_level,
-    #         "target_level": self.target_level, 
-    #         "cross_sec_A": self.cross_sec_A, 
-    #         "cross_sec_C": self.cross_sec_C
-    #     }
+        self.current_level = new_state["output"] #self.plant is never traced in the System
 
     def reset(self):
         self.current_level = self.target_level
@@ -64,6 +61,16 @@ class CournotPlant(BasePlant):
 
     def evaluate(self, disturbances: float, control_signal: float) -> dict:
         """
+
+        Parameters
+        ----------
+        disturbances: the disturbances in the system
+        control_signal: the control signal from current timestep
+
+        Returns
+        -------
+        profit: the profit of the firm
+        profit_goal: the profit goal of the firm
         """
         #q(t+1) = U + q(t)
         amount_q1 = control_signal + self.amount_q1
@@ -92,14 +99,67 @@ class CournotPlant(BasePlant):
             "amount_q2": amount_q2
         } 
     
-
     def update(self, new_state: dict):
+        """
+        Updates the state of the plant
+        """
         self.amount_q1 = new_state["amount_q1"]
         self.amount_q2 = new_state["amount_q2"]
 
     def reset(self):
+        """
+        Resets the state of the plant
+        """
         self.amount_q1 = 0.5
         self.amount_q2 = 0.5
+
+
+
+class ProductionPlant(BasePlant): #resource allocation
+    def __init__(self, cfg: dict):
+        super(ProductionPlant).__init__()
+        self.target = cfg["target_volume"]
+        self.Q = 0.5 #initial production
+        self.k = cfg["production_efficiency"]
+        self.c = cfg["decay_rate"]
+
+
+    def evaluate(self, disturbances: float, control_signal: float):
+        """
+        dQ/dt = kR - cQ
+        
+        Parameters
+        ----------
+        Q: Production output
+        control_signal: resources allocated (R)
+        k: Production efficiency
+        c: Decay rate (machinery wear)
+
+        Returns
+        -------
+        Q_new: the new production output
+        target: the target production
+        """
+        dQ_dt = self.k * control_signal - self.c * self.Q
+        Q_new = self.Q + dQ_dt + disturbances
+        return {
+            "output": Q_new,
+            "target": self.target
+        }
+    
+    def update(self, new_state: dict):
+        """
+        Updates the state of the plant
+        """
+        self.Q = new_state["output"]
+
+    def reset(self):
+        """
+        Resets the state of the plant
+        """
+        self.Q = 0.5
+
+
 
 
 class CarVelocityPlant(BasePlant): #cruise control
@@ -134,76 +194,6 @@ class CarVelocityPlant(BasePlant): #cruise control
 
     def reset(self):
         self.velocity = self.initial_velocity
-
-
-class GreenhousePlant(BasePlant):
-    def __init__(self, cfg: dict):
-        super().__init__()
-        self.target_humidity = cfg["target_humidity"]
-        self.current_humidity = cfg["initial_humidity"]
-        self.humidity_gain = cfg["humidity_gain"]
-        self.humidity_loss = cfg["humidity_loss"]
-
-    def evaluate(self, disturbances: float, control_signal: float):
-        """
-        Simulates humidity changes in the greenhouse.
-        control_signal: Humidifier input (units per timestep).
-        """
-        humidity_increase = control_signal * self.humidity_gain
-        new_humidity = (
-            self.current_humidity + humidity_increase - self.humidity_loss + disturbances
-        )
-        new_humidity = jnp.clip(new_humidity, 0.0, 100.0)  # Humidity is in percentage
-        return {
-            "output": new_humidity,
-            "target": self.target_humidity
-        }
-
-    def update(self, new_state: dict):
-        self.current_humidity = new_state["output"]
-
-    def reset(self):
-        self.current_humidity = self.target_humidity / 2
-
-
-
-
-
-
-
-
-
-class ProductionPlant(BasePlant): #resource allocation
-    def __init__(self, cfg: dict):
-        super(ProductionPlant).__init__()
-        self.target = cfg["target_volume"]
-        self.Q = 0.5 #initial production
-        self.k = cfg["production_efficiency"]
-        self.c = cfg["decay_rate"]
-
-
-    def evaluate(self, disturbances: float, control_signal: float):
-        """
-        dQ/dt = kR - cQ
-        
-        Q: Production output
-        R: Resources allocated (control_signal)
-        k: Production efficiency
-        c: Decay rate (machinery wear)
-        """
-        dQ_dt = self.k * control_signal - self.c * self.Q
-        Q_new = self.Q + dQ_dt + disturbances
-        return {
-            "output": Q_new,
-            "target": self.target
-        }
-    
-    def update(self, new_state: dict):
-        self.Q = new_state["output"]
-
-    def reset(self):
-        self.Q = 0.5
-
 
 
 if __name__ == "__main__":          
